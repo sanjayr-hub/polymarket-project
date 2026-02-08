@@ -30,11 +30,12 @@ jobs:
           python polymarket_snapshot.py markets.yaml data/polymarket_snapshots.csv data/polymarket_latest.csv
 
       - name: Push latest CSV to Google Sheets
+        if: success()
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: |
           if [ ! -f data/polymarket_latest.csv ]; then
-            echo "data/polymarket_latest.csv not found — skipping Google Sheets push."
+            echo "No latest CSV found — skipping Sheets update."
             exit 0
           fi
 
