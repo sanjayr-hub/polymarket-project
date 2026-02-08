@@ -1,43 +1,77 @@
-import os
+#!/usr/bin/env python3
+import argparse
 import csv
 import json
-import argparse
+import os
 import gspread
 from google.oauth2.service_account import Credentials
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", required=True, help="Path to CSV file to upload")
-    parser.add_argument("--sheet_id", required=True, help="Google Sheet spreadsheet ID")
-    parser.add_argument("--tab", required=True, help="Worksheet/tab name")
-    args = parser.parse_args()
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
+def get_gspread_client():
     sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
     if not sa_json:
         raise RuntimeError("Missing env var GOOGLE_SERVICE_ACCOUNT_JSON")
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_info(json.loads(sa_json), scopes=scopes)
-    gc = gspread.authorize(creds)
+    info = json.loads(sa_json)
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
+    return gspread.authorize(creds)
 
-    sh = gc.open_by_key(args.sheet_id)
-    ws = sh.worksheet(args.tab)
-
-    # Read CSV into a 2D array
-    with open(args.csv, "r", newline="", encoding="utf-8") as f:
+def read_csv(csv_path: str):
+    with open(csv_path, newline="") as f:
         rows = list(csv.reader(f))
-
     if not rows:
-        raise RuntimeError("CSV appears empty")
+        return [], []
+    header = rows[0]
+    data = rows[1:]
+    return header, data
 
-    # Clear then write (simple + reliable)
-    ws.clear()
-    ws.update(values=rows, range_name="A1")
+def get_or_create_worksheet(sh, tab_name: str, cols_hint: int = 26):
+    try:
+        return sh.worksheet(tab_name)
+    except gspread.WorksheetNotFound:
+        # create with a reasonable default size
+        return sh.add_worksheet(title=tab_name, rows=2000, cols=max(cols_hint, 26))
 
-    print(f"Uploaded {len(rows)-1} data rows (+ header) to {args.sheet_id}/{args.tab}")
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("--csv", required=True)
+    p.add_argument("--sheet_id", required=True)
+    p.add_argument("--tab", required=True)
+    p.add_argument("--mode", choices=["replace", "append"], default="replace")
+    args = p.parse_args()
+
+    header, data = read_csv(args.csv)
+    if not header:
+        print("CSV is empty; nothing to write.")
+        return 0
+
+    gc = get_gspread_client()
+    sh = gc.open_by_key(args.sheet_id)
+    ws = get_or_create_worksheet(sh, args.tab, cols_hint=len(header))
+
+    if args.mode == "replace":
+        ws.clear()
+        ws.update([header] + data)
+        print(f"Replaced tab '{args.tab}' with {len(data)} rows (+ header).")
+        return 0
+
+    # append mode
+    existing = ws.get_all_values()
+    if not existing:
+        ws.append_row(header)
+        print(f"Wrote header to empty tab '{args.tab}'.")
+
+    if data:
+        ws.append_rows(data, value_input_option="RAW")
+        print(f"Appended {len(data)} rows to '{args.tab}'.")
+    else:
+        print("No data rows to append.")
+
+    return 0
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
