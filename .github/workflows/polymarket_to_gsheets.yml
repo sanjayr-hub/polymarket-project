@@ -2,7 +2,7 @@ name: Polymarket → Google Sheets (latest)
 
 on:
   schedule:
-    - cron: "*/10 * * * *"   # every 10 minutes
+    - cron: "0 */3 * * *"   # every 3 hours
   workflow_dispatch: {}
 
 jobs:
