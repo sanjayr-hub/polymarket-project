@@ -29,32 +29,38 @@ jobs:
           mkdir -p data
           python polymarket_snapshot.py markets.yaml data/polymarket_snapshots.csv data/polymarket_latest.csv
 
-      - name: Push latest CSV to Google Sheets (snapshots tab)
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      - name: Verify latest CSV exists
+        id: latest_csv_check
         run: |
           if [ ! -f data/polymarket_latest.csv ]; then
             echo "No latest CSV found — skipping Sheets update."
-            exit 0
+            echo "has_latest=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_latest=true" >> $GITHUB_OUTPUT
           fi
 
+      - name: Push latest CSV to Google Sheets (snapshots tab)
+        if: steps.latest_csv_check.outputs.has_latest == 'true'
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          SNAPSHOTS_TAB: ${{ secrets.GOOGLE_SHEET_TAB }}
+        run: |
           python tools/push_csv_to_gsheet.py \
             --csv data/polymarket_latest.csv \
-            --sheet_id "${{ secrets.GOOGLE_SHEET_ID }}" \
-            --tab "${{ secrets.GOOGLE_SHEET_TAB }}" \
+            --sheet_id "$SHEET_ID" \
+            --tab "$SNAPSHOTS_TAB" \
             --mode replace
 
       - name: Append to history tab (snapshots_history)
+        if: steps.latest_csv_check.outputs.has_latest == 'true'
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          HISTORY_TAB: snapshots_history
         run: |
-          if [ ! -f data/polymarket_latest.csv ]; then
-            echo "No latest CSV found — skipping history append."
-            exit 0
-          fi
-
           python tools/push_csv_to_gsheet.py \
             --csv data/polymarket_latest.csv \
-            --sheet_id "${{ secrets.GOOGLE_SHEET_ID }}" \
-            --tab "snapshots_history" \
+            --sheet_id "$SHEET_ID" \
+            --tab "$HISTORY_TAB" \
             --mode append
